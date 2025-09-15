@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>내신 5등급제 계산기</title>
+  <style>
+    :root{--bg:#f6f6f7;--ink:#111;--muted:#666;--border:#e5e7eb;--bar:#111;--primary:#2563eb;}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial}
+    .wrap{max-width:880px;margin:0 auto;padding:20px}
+    .top{background:var(--bar);color:#fff;padding:12px 20px}
+    .top .inner{max-width:880px;margin:0 auto;display:flex;justify-content:space-between;align-items:center}
+    h1{font-size:18px;margin:0}
+    .grid{display:grid;gap:12px}
+    @media(min-width:800px){.grid{grid-template-columns:2fr 1fr}}
+    .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px}
+    .label{font-weight:600;margin-bottom:6px}
+    input{width:100%;border:1px solid var(--border);border-radius:10px;padding:10px;font-size:14px}
+    button{width:100%;margin-top:8px;border:0;border-radius:10px;padding:10px 12px;background:var(--primary);color:#fff;font-weight:700;cursor:pointer}
+    button:active{opacity:.9}
+    .table{overflow:auto;border:1px solid var(--border);border-radius:12px;background:#fff}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    thead th{background:#111;color:#fff;text-align:left;padding:10px}
+    tbody td{border-top:1px solid var(--border);padding:10px}
+    .muted{color:var(--muted)}
+    .foot{font-size:12px;color:var(--muted);text-align:center;margin-top:8px}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef2ff}
+    .big{font-size:26px;font-weight:800}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="inner">
+      <h1>내신 5등급제 계산기</h1>
+      <div class="muted">반올림 + 총합 보정(최대잔여)</div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="grid">
+      <div class="card">
+        <div class="label">인원수를 입력하세요</div>
+        <input id="total" type="number" min="1" value="30" />
+        <button id="calc">계산하기</button>
+        <p class="muted" style="margin-top:6px">
+          기준 비율: <span class="pill">1등급 10%</span>
+          <span class="pill">2등급 24%</span>
+          <span class="pill">3등급 32%</span>
+          <span class="pill">4등급 24%</span>
+          <span class="pill">5등급 10%</span>
+        </p>
+      </div>
+      <div class="card">
+        <div class="label">내 석차 (1등 = 1)</div>
+        <input id="rank" type="number" min="1" value="1" />
+        <div class="muted" style="margin-top:10px">내 예상 등급</div>
+        <div id="mygrade" class="big">-</div>
+      </div>
+    </div>
+
+    <div class="table" style="margin-top:12px">
+      <table>
+        <thead>
+          <tr>
+            <th>등급</th><th>비율</th><th>인원</th><th>등수</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <!-- 동적 생성 -->
+        </tbody>
+      </table>
+    </div>
+
+    <div class="foot">본 계산기는 참고용이며, 실제 지침과 다를 수 있습니다.</div>
+  </div>
+
+  <script>
+    const PERCENTS = [10, 24, 32, 24, 10];           // 5등급제
+    const LABELS   = ["1등급","2등급","3등급","4등급","5등급"];
+    const totalEl = document.getElementById('total');
+    const rankEl  = document.getElementById('rank');
+    const rowsEl  = document.getElementById('rows');
+    const mygradeEl = document.getElementById('mygrade');
+    document.getElementById('calc').addEventListener('click', compute);
+    rankEl.addEventListener('input', updateMyGrade);
+
+    function allocateCounts(total, percents){
+      // 1) 소수점 포함 기대 인원
+      const raw = percents.map(p => total * p / 100);
+      // 2) 1차: 반올림
+      let counts = raw.map(x => Math.round(x));
+      // 3) 총합 보정(최대잔여 방식)
+      let sum = counts.reduce((a,b)=>a+b,0);
+      let delta = total - sum; // >0: +1 배분, <0: -1 회수
+      // 분수부 절댓값 (반올림에서 멀수록 우선)
+      const order = raw.map((x,i)=>({i,frac:Math.abs(x - Math.round(x))}))
+                       .sort((a,b)=>b.frac - a.frac);
+      while(delta !== 0){
+        if(delta > 0){
+          for(const o of order){ counts[o.i]++; if(++sum === total){ delta=0; break; } }
+        }else{
+          for(let k=order.length-1; k>=0; k--){
+            const i = order[k].i;
+            if(counts[i]>0){ counts[i]--; sum--; if(sum===total){ delta=0; break; } }
+          }
+        }
+        delta = total - sum;
+      }
+      return counts;
+    }
+
+    function cumulative(arr){
+      const out=[]; let s=0; for(const v of arr){ s+=v; out.push(s); } return out;
+    }
+
+    function renderTable(counts){
+      rowsEl.innerHTML = '';
+      const cum = cumulative(counts);
+      for(let i=0;i<counts.length;i++){
+        const c = counts[i];
+        const start = (i===0)? 1 : (cum[i-1]+1);
+        const end = cum[i];
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${LABELS[i]}</td>
+          <td>${PERCENTS[i]}%</td>
+          <td>${c}</td>
+          <td>${c>0 ? `${start} ~ ${end} 등수까지` : '-'}</td>`;
+        rowsEl.appendChild(tr);
+      }
+      return cum;
+    }
+
+    let lastCum = renderTable(allocateCounts(Number(totalEl.value), PERCENTS));
+    updateMyGrade();
+
+    function compute(){
+      const total = Math.max(1, Number(totalEl.value)||0);
+      const counts = allocateCounts(total, PERCENTS);
+      lastCum = renderTable(counts);
+      updateMyGrade();
+    }
+
+    function updateMyGrade(){
+      const r = Math.max(1, Number(rankEl.value)||0);
+      let g = null;
+      for(let i=0;i<lastCum.length;i++){
+        if(r <= lastCum[i]){ g = i+1; break; }
+      }
+      mygradeEl.textContent = g ? `${g}등급` : '-';
+    }
+  </script>
+</body>
+</html>
